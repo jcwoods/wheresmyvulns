@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';" />
+  <title>Where's My Vulnerability</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- ── Top toolbar ─────────────────────────────────────────────────────────── -->
+<div id="toolbar">
+  <span id="app-title">WMV</span>
+  <span id="sbom-label">No SBOM loaded</span>
+  <div id="toolbar-actions">
+    <button class="tb-btn" id="btn-fetch-vulns" disabled>Fetch Vulnerabilities</button>
+    <button class="tb-btn" id="btn-fit">Fit Graph</button>
+    <label class="tb-label">
+      Layout
+      <select id="layout-select">
+        <option value="dagre">Dagre (hierarchical)</option>
+        <option value="cose">CoSE (force-directed)</option>
+        <option value="breadthfirst">Breadth-first</option>
+        <option value="circle">Circle</option>
+        <option value="grid">Grid</option>
+      </select>
+    </label>
+  </div>
+</div>
+
+<!-- ── Main area ───────────────────────────────────────────────────────────── -->
+<div id="main-area">
+
+  <!-- Left sidebar: package list -->
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <input id="pkg-search" type="text" placeholder="Search packages…" />
+      <div id="severity-filters">
+        <label class="sev-filter critical active" data-sev="CRITICAL">
+          <input type="checkbox" checked /> Critical
+        </label>
+        <label class="sev-filter high active" data-sev="HIGH">
+          <input type="checkbox" checked /> High
+        </label>
+        <label class="sev-filter medium active" data-sev="MEDIUM">
+          <input type="checkbox" checked /> Medium
+        </label>
+        <label class="sev-filter low active" data-sev="LOW">
+          <input type="checkbox" checked /> Low
+        </label>
+        <label class="sev-filter none active" data-sev="NONE">
+          <input type="checkbox" checked /> None
+        </label>
+        <label class="sev-filter unknown active" data-sev="UNKNOWN">
+          <input type="checkbox" checked /> Unknown
+        </label>
+      </div>
+    </div>
+    <div id="pkg-list"></div>
+    <div id="sidebar-stats"></div>
+  </div>
+
+  <!-- Center: cytoscape graph -->
+  <div id="graph-container">
+    <div id="empty-state">
+      <div id="empty-icon">&#128269;</div>
+      <div id="empty-title">Where's My Vulnerability?</div>
+      <div id="empty-sub">Load an SBOM or scan a directory/container to begin.</div>
+      <div id="empty-actions">
+        <button class="empty-btn" id="empty-load">Load SBOM File</button>
+        <button class="empty-btn" id="empty-scan-dir">Scan Directory</button>
+        <button class="empty-btn" id="empty-scan-container">Scan Container</button>
+      </div>
+    </div>
+    <div id="cy"></div>
+    <div id="graph-legend">
+      <span class="legend-item critical">&#9679; Critical</span>
+      <span class="legend-item high">&#9679; High</span>
+      <span class="legend-item medium">&#9679; Medium</span>
+      <span class="legend-item low">&#9679; Low</span>
+      <span class="legend-item none">&#9679; None</span>
+      <span class="legend-item unknown">&#9679; Unknown</span>
+    </div>
+  </div>
+
+  <!-- Right sidebar: details panel -->
+  <div id="details-panel">
+    <div id="details-empty">Select a package in the graph or list to view details.</div>
+    <div id="details-content" style="display:none">
+      <div id="details-header">
+        <div id="details-severity-badge"></div>
+        <div>
+          <div id="details-name"></div>
+          <div id="details-version"></div>
+        </div>
+      </div>
+      <div id="details-purl"></div>
+      <div id="details-ecosystem"></div>
+
+      <div class="details-section-title">Advisories</div>
+      <div id="details-advisories"></div>
+
+      <div class="details-section-title" id="details-cve-title" style="display:none">CVE Details (local DB)</div>
+      <div id="details-cve-list"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Status bar ───────────────────────────────────────────────────────────── -->
+<div id="status-bar">
+  <span id="status-msg">Ready</span>
+  <div id="progress-area" style="display:none">
+    <div id="progress-bar-outer">
+      <div id="progress-bar-inner"></div>
+    </div>
+    <span id="progress-text"></span>
+  </div>
+</div>
+
+<!-- ── CVE DB modal ─────────────────────────────────────────────────────────── -->
+<div id="modal-overlay" style="display:none">
+  <div id="modal-box">
+    <div id="modal-title">Build CVE Database</div>
+    <div id="modal-body">
+      The local CVE database has not been built yet.<br><br>
+      Building it will clone the NVD CVE list (~200K+ records) from GitHub
+      and may take <strong>10–30 minutes</strong> on first run.<br><br>
+      Subsequent refreshes will use <code>git pull</code> and are much faster.
+    </div>
+    <div id="modal-progress" style="display:none">
+      <div id="modal-progress-bar-outer">
+        <div id="modal-progress-bar-inner"></div>
+      </div>
+      <div id="modal-progress-text">Starting…</div>
+    </div>
+    <div id="modal-buttons">
+      <button id="modal-build-btn" class="modal-btn primary">Build Database</button>
+      <button id="modal-skip-btn" class="modal-btn">Skip for Now</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Container scan dialog ───────────────────────────────────────────────── -->
+<div id="container-modal-overlay" style="display:none">
+  <div id="container-modal-box">
+    <div id="container-modal-title">Scan Container Image</div>
+    <div id="container-modal-body">
+      Enter a container image reference to scan with Syft:
+      <input id="container-image-input" type="text"
+             placeholder="e.g. nginx:latest, ubuntu:22.04, docker.io/library/alpine:3.18" />
+      <div id="container-modal-hint">
+        Syft will pull the image if it's not already available locally.
+      </div>
+    </div>
+    <div id="container-modal-buttons">
+      <button id="container-scan-btn" class="modal-btn primary">Scan</button>
+      <button id="container-cancel-btn" class="modal-btn">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Scripts ───────────────────────────────────────────────────────────────── -->
+<script src="../node_modules/cytoscape/dist/cytoscape.min.js"></script>
+<script src="../node_modules/dagre/dist/dagre.min.js"></script>
+<script src="../node_modules/cytoscape-dagre/cytoscape-dagre.js"></script>
+<script src="renderer.js"></script>
+</body>
+</html>
