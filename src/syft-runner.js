@@ -58,6 +58,7 @@ class SyftRunner {
       const args = [
         source,
         '--output', `cyclonedx-json=${tmpFile}`,
+        '--exclude-catalogers', 'files',
         '--quiet',
       ];
 
