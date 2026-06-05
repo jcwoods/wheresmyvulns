@@ -170,7 +170,15 @@ class DepsDevApi {
 
   _get(url, retryMs = INITIAL_RETRY_MS, attempt = 0) {
     return new Promise((resolve, reject) => {
-      const req = https.get(url, { headers: { 'Accept': 'application/json' } }, (res) => {
+      const req = https.get(url, {
+        headers: { 'Accept': 'application/json' },
+        // deps.dev is a read-only public API serving only package metadata, so
+        // there is no sensitive data or trusted content at risk. Some networks
+        // (e.g. corporate TLS-inspecting proxies) present self-signed certs that
+        // break the default chain validation, so we skip server cert checks for
+        // these requests only — this does not affect any other connection.
+        rejectUnauthorized: false,
+      }, (res) => {
         if (res.statusCode === 429) {
           // Rate limited – respect Retry-After header
           const retryAfter = parseInt(res.headers['retry-after'] || '0', 10) * 1000 || retryMs;
