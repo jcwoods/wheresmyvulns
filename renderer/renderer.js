@@ -556,14 +556,64 @@ function purlEcosystem(purl) {
   return m ? m[1].toLowerCase() : null;
 }
 
+// A dependency is identified by its package coordinate at a specific version,
+// independent of where syft happened to find it. syft can emit the same
+// package@version as multiple components (different bom-refs / locations), which
+// otherwise shows up duplicated in the list and graph. Collapse those into one,
+// while keeping distinct versions of a package as separate entries.
+function dependencyKey(c) {
+  if (c.purl) {
+    // Strip qualifiers (?…) and subpath (#…); keep "pkg:ecosystem/name@version".
+    return c.purl.split('?')[0].split('#')[0].toLowerCase();
+  }
+  return `${c.ecosystem || ''}|${c.name}@${c.version}`.toLowerCase();
+}
+
+function dedupeComponents(sbom) {
+  const canonicalByKey = new Map();   // dependency key → canonical component
+  const idToCanonical = new Map();    // original component id → canonical id
+  const components = [];
+
+  for (const c of sbom.components || []) {
+    const key = dependencyKey(c);
+    const existing = canonicalByKey.get(key);
+    if (!existing) {
+      canonicalByKey.set(key, c);
+      components.push(c);
+      idToCanonical.set(c.id, c.id);
+    } else {
+      // Prefer the root component as the canonical entry if there's a clash.
+      if (c.isRoot && !existing.isRoot) {
+        existing.isRoot = true;
+      }
+      idToCanonical.set(c.id, existing.id);
+    }
+  }
+
+  // Remap dependency edges onto canonical ids, dropping self-loops and dupes.
+  const dependencies = [];
+  const seen = new Set();
+  for (const d of sbom.dependencies || []) {
+    const from = idToCanonical.get(d.from) || d.from;
+    const to = idToCanonical.get(d.to) || d.to;
+    if (from === to) continue;
+    const key = `${from}→${to}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    dependencies.push({ from, to });
+  }
+
+  return { ...sbom, components, dependencies };
+}
+
 function onSbomLoaded(sbom, source) {
-  state.sbom = sbom;
+  state.sbom = dedupeComponents(sbom);
   state.vulnData = null;
   state.selectedId = null;
   state.cveDetails = {};
 
-  const compCount = sbom.components.length;
-  const depCount = sbom.dependencies.length;
+  const compCount = state.sbom.components.length;
+  const depCount = state.sbom.dependencies.length;
   const shortSource = source.length > 60 ? '…' + source.slice(-57) : source;
 
   document.getElementById('sbom-label').textContent =
